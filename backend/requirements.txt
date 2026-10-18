@@ -9,6 +9,9 @@ snowflake-connector-python>=5.0,<6
 fastapi==0.143.3
 uvicorn==0.54.0
 
+# SQL parsing for grounded explanations of the executed SQL (backend/app/sql_explain.py)
+sqlglot==30.23.0
+
 # Testing (httpx is required by FastAPI's TestClient)
 pytest==9.1.1
 httpx==0.28.1

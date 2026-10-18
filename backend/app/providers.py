@@ -206,20 +206,45 @@ class _SQLProvider:
 
 
 class DuckDBProvider(_SQLProvider):
-    """Local development provider backed by ``backend/app/database.py``."""
+    """Local provider backed by ``backend/app/database.py``.
+
+    ``db_path`` selects a specific DuckDB file (e.g. an evaluation fixture or an
+    isolated demo database). By default the dev database from
+    ``DATAMIND_DUCKDB_PATH`` / ``data/datamind_dev.duckdb`` is used.
+    """
 
     name = "duckdb"
 
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        self.db_path = Path(db_path) if db_path is not None else None
+
+    def _path(self) -> Path:
+        return self.db_path if self.db_path is not None else database.get_db_path()
+
     @contextmanager
     def _query_cursor(self) -> Iterator[Any]:
-        with database._connect(read_only=True) as con:
+        with database._connect(read_only=True, path=self._path()) as con:
             yield con
 
     def get_schema(self) -> Schema:
-        return database.get_schema()
+        return database.get_schema(self._path())
+
+    def get_relationships(self) -> list[tuple[str, str, str, str]]:
+        """Declared foreign keys as ``(fk_table, fk_column, pk_table, pk_column)``."""
+        with database._connect(read_only=True, path=self._path()) as con:
+            rows = con.execute(
+                "SELECT table_name, constraint_column_names, referenced_table, referenced_column_names "
+                "FROM duckdb_constraints() WHERE constraint_type = 'FOREIGN KEY' AND schema_name = 'main' "
+                "ORDER BY table_name, constraint_index"
+            ).fetchall()
+        return [
+            (table, fk_col, ref_table, pk_col)
+            for table, fk_cols, ref_table, pk_cols in rows
+            for fk_col, pk_col in zip(fk_cols, pk_cols)
+        ]
 
     def location(self) -> dict[str, str]:
-        return {"database": database.get_db_path().stem, "schema": "main"}
+        return {"database": self._path().stem, "schema": "main"}
 
 
 # --------------------------------------------------------------------------- #
@@ -412,6 +437,24 @@ class SnowflakeProvider(_SQLProvider):
             )
             rows = cursor.fetchall()
         return build_schema(rows)
+
+    def get_relationships(self) -> list[tuple[str, str, str, str]]:
+        """Declared foreign keys via ``SHOW IMPORTED KEYS`` (a fixed, read-only
+        metadata statement issued by the app, never by generated SQL)."""
+        s = self.settings
+
+        def ident(name: str) -> str:
+            return '"' + name.upper().replace('"', '""') + '"'
+
+        with self._query_cursor() as cursor:
+            cursor.execute(f"SHOW IMPORTED KEYS IN SCHEMA {ident(s.database)}.{ident(s.schema)}")
+            names = [d[0].lower() for d in cursor.description or []]
+            rows = [dict(zip(names, r)) for r in cursor.fetchall()]
+        return [
+            (r["fk_table_name"], r["fk_column_name"], r["pk_table_name"], r["pk_column_name"])
+            for r in rows
+            if r.get("fk_table_name") and r.get("pk_table_name")
+        ]
 
 
 def get_provider(env: Mapping[str, str] | None = None) -> DataProvider:
