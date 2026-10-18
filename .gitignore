@@ -1,0 +1,39 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Secrets - never commit real credentials
+.env
+.env.*
+!.env.example
+*.p8
+*.pem
+*.key
+
+# Local development databases (DuckDB)
+*.duckdb
+*.duckdb.wal
+*.db
+
+# Generated data and model directories
+data/
+models/
+*.gguf
+*.safetensors
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
