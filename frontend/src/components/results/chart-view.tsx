@@ -1,6 +1,5 @@
 "use client";
 
-import { BarChart3 } from "lucide-react";
 import { useMemo } from "react";
 import {
   Bar,
@@ -29,7 +28,7 @@ const axisTick = { fill: "var(--text-faint)", fontSize: 11 };
 function ChartTooltip({ active, payload, label, currencyCols }: TooltipProps<number, string> & { currencyCols: Set<string> }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-line-strong bg-surface-2 px-3 py-2 text-xs shadow-elevated">
+    <div className="rounded-md bg-surface-2 px-3 py-2 text-xs shadow-elevated">
       {label !== undefined && <div className="mb-1 font-medium text-fg">{String(label)}</div>}
       <ul className="space-y-0.5">
         {payload.map((p) => (
@@ -92,8 +91,8 @@ export function ChartView({ spec: inferred, rows }: { spec: ChartSpec; rows: Arr
             dataKey={y}
             name={y}
             stroke={SERIES[i]}
-            strokeWidth={2}
-            dot={data.length <= 24 ? { r: 3, strokeWidth: 0, fill: SERIES[i] } : false}
+            strokeWidth={1.75}
+            dot={data.length <= 24 ? { r: 2.5, strokeWidth: 0, fill: SERIES[i] } : false}
             activeDot={{ r: 5, strokeWidth: 2, stroke: "var(--surface)" }}
             connectNulls={false}
             isAnimationActive={data.length < 200}
@@ -117,16 +116,16 @@ export function ChartView({ spec: inferred, rows }: { spec: ChartSpec; rows: Arr
           tickFormatter={(v) => truncateLabel(v, 24)}
           interval={0}
         />
-        <Tooltip content={<ChartTooltip currencyCols={currencyCols} />} cursor={{ fill: "var(--accent-soft)" }} />
+        <Tooltip content={<ChartTooltip currencyCols={currencyCols} />} cursor={{ fill: "var(--surface-2)" }} />
         {legend}
         {spec.y.map((y, i) => (
-          <Bar key={y} dataKey={y} name={y} fill={SERIES[i]} radius={[0, 4, 4, 0]} maxBarSize={22} isAnimationActive={data.length < 60} />
+          <Bar key={y} dataKey={y} name={y} fill={SERIES[i]} radius={[0, 2, 2, 0]} maxBarSize={22} isAnimationActive={data.length < 60} />
         ))}
       </BarChart>
     );
   } else if (spec.kind === "pie") {
     const y = spec.y[0] ?? "";
-    const pieColors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--accent-strong)", "var(--cyan)", "var(--text-faint)"];
+    const pieColors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--text-muted)", "var(--cyan)", "var(--text-faint)"];
     chart = (
       <PieChart>
         <Tooltip content={<ChartTooltip currencyCols={currencyCols} />} />
@@ -144,10 +143,10 @@ export function ChartView({ spec: inferred, rows }: { spec: ChartSpec; rows: Arr
         <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
         <XAxis dataKey={x} tick={axisTick} tickLine={false} axisLine={{ stroke: "var(--border-strong)" }} interval={0} tickFormatter={(v) => truncateLabel(v, 14)} />
         <YAxis tick={axisTick} tickLine={false} axisLine={false} tickFormatter={tickFmt} width={64} />
-        <Tooltip content={<ChartTooltip currencyCols={currencyCols} />} cursor={{ fill: "var(--accent-soft)" }} />
+        <Tooltip content={<ChartTooltip currencyCols={currencyCols} />} cursor={{ fill: "var(--surface-2)" }} />
         {legend}
         {spec.y.map((y, i) => (
-          <Bar key={y} dataKey={y} name={y} fill={SERIES[i]} radius={[4, 4, 0, 0]} maxBarSize={56} isAnimationActive={data.length < 60} />
+          <Bar key={y} dataKey={y} name={y} fill={SERIES[i]} radius={[2, 2, 0, 0]} maxBarSize={56} isAnimationActive={data.length < 60} />
         ))}
       </BarChart>
     );
@@ -158,8 +157,7 @@ export function ChartView({ spec: inferred, rows }: { spec: ChartSpec; rows: Arr
   return (
     <Panel
       id="chart"
-      title="Visualization"
-      icon={<BarChart3 />}
+      title="Chart"
       meta={<span className="hidden truncate sm:inline">{spec.reason}</span>}
       bodyClassName="px-2 pt-3 pb-2 sm:px-3"
     >

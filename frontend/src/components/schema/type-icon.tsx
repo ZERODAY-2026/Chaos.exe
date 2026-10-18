@@ -10,10 +10,9 @@ export function typeCategory(t: string): "number" | "date" | "text" | "boolean" 
 }
 
 const ICONS = { number: Hash, date: Calendar, text: Type, boolean: ToggleLeft, other: Braces };
-const COLORS = { number: "text-accent", date: "text-cyan", text: "text-muted", boolean: "text-warning", other: "text-faint" };
 
 export function TypeIcon({ dataType }: { dataType: string }) {
   const cat = typeCategory(dataType);
   const Icon = ICONS[cat];
-  return <Icon className={`size-3.5 shrink-0 ${COLORS[cat]}`} aria-label={`${cat} column`} />;
+  return <Icon className="size-3 shrink-0 text-faint" strokeWidth={2} aria-label={`${cat} column`} />;
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import { Inbox } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -16,7 +15,7 @@ import { ClarificationPanel, RefusedPanel, ResponseErrorPanel } from "./state-pa
 // Recharts is only needed once a result has a chart, so it loads on demand.
 const ChartView = dynamic(() => import("./chart-view").then((m) => m.ChartView), {
   ssr: false,
-  loading: () => <div className="panel skeleton h-[360px]" aria-hidden="true" />,
+  loading: () => <div className="panel h-[340px]" aria-hidden="true" />,
 });
 
 export function ResultView({ result, fromHistory, rowsTrimmed }: { result: QueryResult; fromHistory?: boolean; rowsTrimmed?: boolean }) {
@@ -36,7 +35,7 @@ export function ResultView({ result, fromHistory, rowsTrimmed }: { result: Query
   const stem = `datamind-${r.query_id}`.replace(/[^a-z0-9-]/gi, "-").slice(0, 60);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <AnswerSummary result={result} fromHistory={fromHistory} />
       <MetricGrid spec={spec} rows={rows} columns={columns} truncated={truncated} />
       {spec && spec.kind !== "kpi" && <ChartView spec={spec} rows={rows} />}
@@ -51,8 +50,8 @@ export function ResultView({ result, fromHistory, rowsTrimmed }: { result: Query
           fileStem={stem}
         />
       ) : (
-        <section className="panel enter">
-          <EmptyState icon={<Inbox />} title={result.source === "demo" ? "This sample response has no rows" : "The query returned no rows"}>
+        <section className="panel">
+          <EmptyState title={result.source === "demo" ? "This sample response has no rows" : "The query returned no rows"}>
             {r.executed === true
               ? "The SQL ran without errors, but nothing matched. Check the filters in the SQL below, or broaden the question."
               : "No rows came back for this question. Check the filters in the SQL below, or broaden the question."}

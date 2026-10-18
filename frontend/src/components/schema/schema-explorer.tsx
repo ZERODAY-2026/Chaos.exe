@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, CornerDownLeft, Database, RotateCcw, Search, Table2, X } from "lucide-react";
+import { CornerDownLeft, RotateCcw, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,7 @@ function Highlight({ text, q }: { text: string; q: string }) {
   return (
     <>
       {text.slice(0, i)}
-      <mark className="rounded-sm bg-accent-soft text-fg">{text.slice(i, i + q.length)}</mark>
+      <mark className="rounded-[2px] bg-accent-soft text-accent-strong">{text.slice(i, i + q.length)}</mark>
       {text.slice(i + q.length)}
     </>
   );
@@ -69,10 +69,9 @@ export function SchemaExplorer() {
         <div className="panel">
           <EmptyState
             tone="danger"
-            icon={<Database />}
             title="Schema unavailable"
             action={
-              <Button variant="secondary" size="sm" icon={<RotateCcw className="size-3.5" />} onClick={refreshHealth}>
+              <Button size="sm" icon={<RotateCcw className="size-3.5" />} onClick={refreshHealth}>
                 Retry connection
               </Button>
             }
@@ -89,7 +88,7 @@ export function SchemaExplorer() {
       subtitle={
         schema.data ? (
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-mono text-fg/80">{[schema.data.database, ...schema.data.schemas.map((s) => s.name)].filter(Boolean).join(" · ")}</span>
+            <span className="font-mono text-fg">{[schema.data.database, ...schema.data.schemas.map((s) => s.name)].filter(Boolean).join(" · ")}</span>
             <span className="tnum">
               {entries.length} tables · {formatNumber(columnCount)} columns
             </span>
@@ -102,10 +101,9 @@ export function SchemaExplorer() {
         <div className="panel">
           <EmptyState
             tone="danger"
-            icon={<Database />}
             title="Could not load the schema"
             action={
-              <Button variant="secondary" size="sm" icon={<RotateCcw className="size-3.5" />} onClick={schema.reload}>
+              <Button size="sm" icon={<RotateCcw className="size-3.5" />} onClick={schema.reload}>
                 Try again
               </Button>
             }
@@ -114,10 +112,10 @@ export function SchemaExplorer() {
           </EmptyState>
         </div>
       ) : schema.status !== "ready" ? (
-        <div className="grid gap-4 lg:grid-cols-[300px_1fr]" aria-busy="true" aria-label="Loading schema">
+        <div className="grid gap-4 lg:grid-cols-[260px_1fr]" aria-busy="true" aria-label="Loading schema">
           <div className="panel space-y-2 p-3">
             {Array.from({ length: 7 }).map((_, i) => (
-              <div key={i} className="skeleton h-9" />
+              <div key={i} className="skeleton h-7" />
             ))}
           </div>
           <div className="panel space-y-3 p-4">
@@ -128,14 +126,14 @@ export function SchemaExplorer() {
         </div>
       ) : entries.length === 0 ? (
         <div className="panel">
-          <EmptyState icon={<Table2 />} title="No tables found">
+          <EmptyState title="No tables found">
             The data source responded but reported no tables this account can read.
           </EmptyState>
         </div>
       ) : (
-        <div className="grid items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <div className="panel lg:sticky lg:top-20">
-            <div className="border-b border-line p-2.5">
+        <div className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="panel lg:sticky lg:top-16">
+            <div className="border-b border-line p-2">
               <label className="relative block">
                 <span className="sr-only">Search tables and columns</span>
                 <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-faint" />
@@ -143,7 +141,7 @@ export function SchemaExplorer() {
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Search tables and columns"
-                  className="h-8 w-full rounded-md border border-line bg-surface-2 pr-8 pl-8 text-[13px] text-fg placeholder:text-faint focus:border-accent/50 focus:outline-none"
+                  className="input pr-8 pl-8"
                 />
                 {q && (
                   <IconButton label="Clear search" size="sm" className="absolute top-1/2 right-1 size-6 -translate-y-1/2" onClick={() => setQ("")}>
@@ -155,7 +153,7 @@ export function SchemaExplorer() {
             {filtered.length === 0 ? (
               <p className="p-4 text-center text-xs text-muted">No tables or columns match “{q}”.</p>
             ) : (
-              <ul className="max-h-[60vh] overflow-y-auto p-1.5" aria-label="Tables">
+              <ul className="max-h-[60vh] overflow-y-auto p-1" aria-label="Tables">
                 {filtered.map((e) => {
                   const isActive = active && keyOf(active) === keyOf(e);
                   const colHits = query ? e.table.columns.filter((c) => c.name.toLowerCase().includes(query)).length : 0;
@@ -166,24 +164,22 @@ export function SchemaExplorer() {
                         onClick={() => setSelected(keyOf(e))}
                         aria-current={isActive ? "true" : undefined}
                         className={cn(
-                          "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
-                          isActive ? "bg-surface-2 text-fg" : "text-muted hover:bg-surface-2/60 hover:text-fg",
+                          "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors",
+                          isActive ? "bg-surface-2 text-fg" : "text-muted hover:bg-surface-2/50 hover:text-fg",
                         )}
                       >
-                        <Table2 className={cn("size-3.5 shrink-0", isActive ? "text-accent" : "text-faint")} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-mono text-[12.5px]">
                             <Highlight text={e.table.name} q={query} />
                           </span>
                           <span className="block text-[11px] text-faint">
                             {e.table.columns.length} columns
-                            {colHits > 0 && <span className="text-accent"> · {colHits} match</span>}
+                            {colHits > 0 && <span className="text-accent"> · {colHits} matching</span>}
                           </span>
                         </span>
                         {e.table.row_count !== null && e.table.row_count !== undefined && (
                           <span className="tnum text-[11px] text-faint">{formatNumber(e.table.row_count, { compact: true })}</span>
                         )}
-                        <ChevronRight className={cn("size-3.5 shrink-0 text-faint", !isActive && "opacity-0")} />
                       </button>
                     </li>
                   );
@@ -193,21 +189,21 @@ export function SchemaExplorer() {
           </div>
 
           {active && (
-            <section className="panel enter min-w-0" key={keyOf(active)} aria-labelledby="table-heading">
+            <section className="panel min-w-0" key={keyOf(active)} aria-labelledby="table-heading">
               <header className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3">
                 <div className="min-w-0">
-                  <div className="text-[11px] text-faint">{active.schema}</div>
-                  <h2 id="table-heading" className="truncate font-mono text-[15px] font-semibold text-fg">
+                  <div className="font-mono text-[11px] text-faint">{active.schema}</div>
+                  <h2 id="table-heading" className="truncate font-mono text-sm font-semibold text-fg">
                     {active.table.name}
                   </h2>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge>{active.table.columns.length} columns</Badge>
+                <div className="tnum flex flex-wrap items-center gap-x-3 text-xs text-faint">
+                  <span>{active.table.columns.length} columns</span>
                   {active.table.row_count !== null && active.table.row_count !== undefined && (
-                    <Badge>{formatNumber(active.table.row_count)} rows</Badge>
+                    <span>{formatNumber(active.table.row_count)} rows</span>
                   )}
                 </div>
-                <Button size="sm" variant="secondary" className="ml-auto" icon={<CornerDownLeft className="size-3.5" />} onClick={() => insert(active.table.name)}>
+                <Button size="sm" className="ml-auto" icon={<CornerDownLeft className="size-3.5" />} onClick={() => insert(active.table.name)}>
                   Use in question
                 </Button>
               </header>
@@ -215,10 +211,10 @@ export function SchemaExplorer() {
               <div className="overflow-x-auto">
                 <table className="w-full text-[13px]">
                   <thead>
-                    <tr className="text-left text-[11px] font-semibold tracking-wide text-faint uppercase">
-                      <th scope="col" className="px-4 py-2 font-semibold">Column</th>
-                      <th scope="col" className="px-4 py-2 font-semibold">Type</th>
-                      <th scope="col" className="hidden px-4 py-2 font-semibold md:table-cell">Description</th>
+                    <tr className="border-b border-line-strong text-left text-xs text-muted">
+                      <th scope="col" className="px-4 py-2 font-medium">Column</th>
+                      <th scope="col" className="px-4 py-2 font-medium">Type</th>
+                      <th scope="col" className="hidden px-4 py-2 font-medium md:table-cell">Description</th>
                       <th scope="col" className="w-10 px-2 py-2">
                         <span className="sr-only">Actions</span>
                       </th>
@@ -228,21 +224,21 @@ export function SchemaExplorer() {
                     {active.table.columns.map((c) => {
                       const hit = query && c.name.toLowerCase().includes(query);
                       return (
-                        <tr key={c.name} className={cn("group border-t border-line transition-colors hover:bg-surface-2/60", hit && "bg-accent-soft/50")}>
-                          <td className="px-4 py-2">
+                        <tr key={c.name} className={cn("group border-b border-line last:border-0 hover:bg-surface-2/50", hit && "bg-accent-soft")}>
+                          <td className="px-4 py-1.5">
                             <span className="flex items-center gap-2 font-mono text-[12.5px] text-fg">
                               <TypeIcon dataType={c.data_type} />
                               <Highlight text={c.name} q={query} />
                               {c.nullable === false && <span className="text-[10px] text-faint">not null</span>}
                             </span>
                           </td>
-                          <td className="px-4 py-2 font-mono text-xs whitespace-nowrap text-muted">{c.data_type}</td>
-                          <td className="hidden px-4 py-2 text-xs text-muted md:table-cell">{c.description ?? <span className="text-faint">—</span>}</td>
-                          <td className="px-2 py-1.5 text-right">
+                          <td className="px-4 py-1.5 font-mono text-xs whitespace-nowrap text-muted">{c.data_type}</td>
+                          <td className="hidden px-4 py-1.5 text-xs text-muted md:table-cell">{c.description ?? <span className="text-faint">—</span>}</td>
+                          <td className="px-2 py-1 text-right">
                             <IconButton
                               size="sm"
                               label={`Add ${c.name} to question`}
-                              className="opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
+                              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-60"
                               onClick={() => insert(c.name)}
                             >
                               <CornerDownLeft className="size-3.5" />

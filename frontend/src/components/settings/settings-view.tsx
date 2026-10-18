@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, FlaskConical, KeyRound, Monitor, Moon, Plug, RotateCcw, Server, Sun, Trash2 } from "lucide-react";
+import { RotateCcw, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { PageFrame } from "@/components/layout/page-frame";
@@ -12,24 +12,21 @@ import { API_BASE_URL } from "@/lib/api-client";
 import { formatNumber, formatRelativeTime } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
-function Section({ icon, title, description, children }: { icon: ReactNode; title: string; description: string; children: ReactNode }) {
+function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
-    <section className="grid gap-4 border-b border-line py-7 first:pt-0 last:border-0 md:grid-cols-[240px_minmax(0,1fr)] md:gap-10">
+    <section className="grid gap-3 border-t border-line py-6 md:grid-cols-[220px_minmax(0,1fr)] md:gap-10">
       <div>
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-fg">
-          <span className="text-faint [&>svg]:size-4">{icon}</span>
-          {title}
-        </h2>
-        <p className="mt-1 text-[13px] leading-relaxed text-muted">{description}</p>
+        <h2 className="text-[13px] font-medium text-fg">{title}</h2>
+        <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p>
       </div>
       <div className="min-w-0">{children}</div>
     </section>
   );
 }
 
-function Segmented<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: string; icon: ReactNode }>; label: string }) {
+function Segmented<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: string }>; label: string }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg border border-line bg-surface p-0.5">
+    <div role="radiogroup" aria-label={label} className="inline-flex rounded-md border border-line-strong p-0.5">
       {options.map((o) => (
         <button
           key={o.value}
@@ -38,11 +35,10 @@ function Segmented<T extends string>({ value, onChange, options, label }: { valu
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
           className={cn(
-            "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors [&>svg]:size-3.5",
-            value === o.value ? "bg-surface-3 text-fg" : "text-muted hover:text-fg",
+            "inline-flex h-6 items-center rounded-sm px-3 text-xs font-medium transition-colors",
+            value === o.value ? "bg-surface-2 text-fg" : "text-muted hover:text-fg",
           )}
         >
-          {o.icon}
           {o.label}
         </button>
       ))}
@@ -52,9 +48,9 @@ function Segmented<T extends string>({ value, onChange, options, label }: { valu
 
 function KV({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-b border-line py-2.5 text-[13px] last:border-0">
+    <div className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] gap-x-4 border-b border-line py-2 text-[13px] last:border-0">
       <dt className="text-muted">{label}</dt>
-      <dd className="min-w-0 text-right break-all text-fg">{children}</dd>
+      <dd className="min-w-0 break-all text-fg">{children}</dd>
     </div>
   );
 }
@@ -67,21 +63,21 @@ export function SettingsView() {
 
   return (
     <PageFrame title="Settings" subtitle="Connection, data sources and appearance for this browser.">
-      <div className="panel px-5 py-7 sm:px-7">
-        <Section icon={<Plug />} title="Mode" description="Live mode sends questions to the DataMind backend. Demo mode uses bundled, labeled sample fixtures and queries nothing.">
+      <div className="max-w-4xl">
+        <Section title="Mode" description="Live mode sends questions to the DataMind backend. Demo mode uses bundled, labeled sample fixtures and queries nothing.">
           <Segmented
             label="Mode"
             value={mode}
             onChange={setMode}
             options={[
-              { value: "live", label: "Live backend", icon: <Server /> },
-              { value: "demo", label: "Demo fixtures", icon: <FlaskConical /> },
+              { value: "live", label: "Live backend" },
+              { value: "demo", label: "Demo fixtures" },
             ]}
           />
         </Section>
 
-        <Section icon={<Server />} title="Backend connection" description="Status reported by the backend health endpoint.">
-          <dl className="rounded-lg border border-line bg-surface-2/40 px-4">
+        <Section title="Backend connection" description="Status reported by the backend health endpoint.">
+          <dl className="panel px-4 py-0.5">
             <KV label="Status">
               <span className="inline-flex items-center gap-2">
                 <StatusDot tone={summary.tone} pulse={summary.pulse} />
@@ -97,20 +93,20 @@ export function SettingsView() {
             {health.checkedAt && <KV label="Last checked">{formatRelativeTime(health.checkedAt)}</KV>}
           </dl>
           <div className="mt-3">
-            <Button size="sm" variant="secondary" icon={<RotateCcw className="size-3.5" />} loading={health.state === "loading"} onClick={refreshHealth}>
+            <Button size="sm" icon={<RotateCcw className="size-3.5" />} loading={health.state === "loading"} onClick={refreshHealth}>
               Check connection
             </Button>
           </div>
         </Section>
 
-        <Section icon={<KeyRound />} title="Data sources" description="Providers the backend reports. Credentials live in the backend's .env file and are never entered or stored in the browser.">
+        <Section title="Data sources" description="Providers the backend reports. Credentials live in the backend's .env file and are never entered or stored in the browser.">
           {providers.length === 0 ? (
             <p className="text-[13px] text-muted">{health.state === "error" ? "Unavailable while the backend is offline." : "No data sources reported."}</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="panel divide-y divide-line">
               {providers.map((p) => (
-                <li key={p.id} className="flex items-start gap-3 rounded-lg border border-line bg-surface-2/40 px-4 py-3">
-                  <span className="mt-1.5">
+                <li key={p.id} className="flex items-start gap-3 px-4 py-3">
+                  <span className="mt-[7px]">
                     <StatusDot tone={p.connected ? "success" : "danger"} />
                   </span>
                   <div className="min-w-0 flex-1">
@@ -132,9 +128,9 @@ export function SettingsView() {
           )}
         </Section>
 
-        <Section icon={<Cpu />} title="Model" description="The language model the backend uses to interpret questions and write SQL.">
+        <Section title="Model" description="The language model the backend uses to interpret questions and write SQL.">
           {data?.model ? (
-            <dl className="rounded-lg border border-line bg-surface-2/40 px-4">
+            <dl className="panel px-4 py-0.5">
               <KV label="Model">{data.model.name}</KV>
               {data.model.runtime && <KV label="Runtime">{data.model.runtime}</KV>}
               <KV label="Availability">
@@ -150,19 +146,19 @@ export function SettingsView() {
           )}
         </Section>
 
-        <Section icon={<Monitor />} title="Appearance" description="Saved in this browser.">
+        <Section title="Appearance" description="Saved in this browser.">
           <Segmented
             label="Theme"
             value={theme}
             onChange={setTheme}
             options={[
-              { value: "dark", label: "Dark", icon: <Moon /> },
-              { value: "light", label: "Light", icon: <Sun /> },
+              { value: "dark", label: "Dark" },
+              { value: "light", label: "Light" },
             ]}
           />
         </Section>
 
-        <Section icon={<Trash2 />} title="Local data" description="Query history is kept only in this browser's storage.">
+        <Section title="Local data" description="Query history is kept only in this browser's storage.">
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-[13px] text-muted">
               {cleared ? "History cleared." : `${history.length} saved ${history.length === 1 ? "question" : "questions"}`}
@@ -182,7 +178,6 @@ export function SettingsView() {
           </div>
         </Section>
       </div>
-      <p className="mt-6 text-center text-xs text-faint">DataMind · PS1 “Talk to your data” · open-source frontend</p>
     </PageFrame>
   );
 }

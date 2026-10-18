@@ -37,7 +37,7 @@ export function ProviderSwitcher() {
     </>
   );
 
-  const cls = "flex h-8 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-xs font-medium text-fg";
+  const cls = "flex h-7 items-center gap-2 rounded-md border border-line-strong px-2.5 text-xs font-medium text-fg";
 
   if (single) return <div className={cls} title={`Data source: ${label}`}>{trigger}</div>;
 
@@ -45,7 +45,7 @@ export function ProviderSwitcher() {
     <div className="relative" ref={ref}>
       <button
         type="button"
-        className={cn(cls, "transition-colors hover:border-line-strong hover:bg-surface-2")}
+        className={cn(cls, "transition-colors hover:bg-surface-2 disabled:opacity-50")}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`Data source: ${label}. Change data source`}
@@ -58,7 +58,7 @@ export function ProviderSwitcher() {
         <ul
           role="listbox"
           aria-label="Data sources"
-          className="enter absolute right-0 z-40 mt-1.5 w-64 rounded-xl border border-line-strong bg-surface-2 p-1 shadow-elevated"
+          className="enter absolute right-0 z-40 mt-1 w-64 rounded-md bg-surface-2 p-1 shadow-elevated"
         >
           {providers.map((p) => (
             <li key={p.id} role="option" aria-selected={p.id === provider.id} aria-disabled={!p.connected}>
@@ -69,9 +69,9 @@ export function ProviderSwitcher() {
                   setProviderId(p.id);
                   setOpen(false);
                 }}
-                className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-transparent"
+                className="flex w-full items-start gap-2.5 rounded-sm px-2.5 py-2 text-left transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-transparent"
               >
-                <span className="mt-1">
+                <span className="mt-[7px]">
                   <StatusDot tone={p.connected ? "success" : "danger"} />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -80,7 +80,7 @@ export function ProviderSwitcher() {
                     {p.connected ? [p.database, p.schema].filter(Boolean).join(".") || "Connected" : (p.detail ?? "Not connected")}
                   </span>
                 </span>
-                {p.id === provider.id && <Check className="mt-0.5 size-4 text-accent" />}
+                {p.id === provider.id && <Check className="mt-0.5 size-3.5 text-fg" />}
               </button>
             </li>
           ))}

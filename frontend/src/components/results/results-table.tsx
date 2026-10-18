@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardCopy, Download, Info, Table2 } from "lucide-react";
+import { ClipboardCopy, Download } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
@@ -51,7 +51,6 @@ export function ResultsTable({ columns, rows, totalRowCount, truncated, rowLimit
     <Panel
       id="table"
       title="Results"
-      icon={<Table2 />}
       meta={
         <span className="tnum">
           {formatNumber(rows.length)} {rows.length === 1 ? "row" : "rows"} · {columns.length} {columns.length === 1 ? "column" : "columns"}
@@ -79,8 +78,8 @@ export function ResultsTable({ columns, rows, totalRowCount, truncated, rowLimit
       bodyClassName="p-0"
     >
       {(partial || trimmedForHistory) && (
-        <div className="flex items-start gap-2 border-b border-line bg-warning-soft px-4 py-2 text-xs text-warning">
-          <Info className="mt-px size-3.5 shrink-0" />
+        <div className="border-b border-line bg-warning-soft px-4 py-2 text-xs text-muted">
+          <span className="font-medium text-warning">Partial result. </span>
           <span>
             {trimmedForHistory
               ? `This saved result keeps the first ${formatNumber(rows.length)} rows. Ask the question again to load the full result.`
@@ -92,9 +91,9 @@ export function ResultsTable({ columns, rows, totalRowCount, truncated, rowLimit
       )}
       <div className="max-h-[560px] overflow-auto" tabIndex={0} role="region" aria-label="Result rows">
         <table className="w-full border-collapse text-[13px]">
-          <thead className="sticky top-0 z-10 bg-surface-2">
+          <thead className="sticky top-0 z-10 bg-surface">
             <tr>
-              <th scope="col" className="w-10 border-b border-line px-3 py-2 text-right text-[11px] font-medium text-faint">
+              <th scope="col" className="w-10 border-b border-line-strong px-3 py-2 text-right text-[11px] font-normal text-faint">
                 #
               </th>
               {columns.map((c) => (
@@ -102,20 +101,20 @@ export function ResultsTable({ columns, rows, totalRowCount, truncated, rowLimit
                   key={c.name}
                   scope="col"
                   className={cn(
-                    "border-b border-line px-3 py-2 text-[11px] font-semibold tracking-wide whitespace-nowrap text-muted",
+                    "border-b border-line-strong px-3 py-2 text-xs font-medium whitespace-nowrap text-muted",
                     numericCols.has(c.name) ? "text-right" : "text-left",
                   )}
                 >
                   <span className="font-mono">{c.name}</span>
-                  {c.data_type && <span className="ml-1.5 font-normal text-faint">{c.data_type.toLowerCase()}</span>}
+                  {c.data_type && <span className="ml-1.5 text-[11px] font-normal text-faint">{c.data_type.toLowerCase()}</span>}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {shown.map((row, i) => (
-              <tr key={i} className="transition-colors hover:bg-surface-2/70">
-                <td className="tnum border-b border-line px-3 py-2 text-right text-[11px] text-faint">{i + 1}</td>
+              <tr key={i} className="hover:bg-surface-2/60">
+                <td className="tnum border-b border-line px-3 py-1.5 text-right text-[11px] text-faint">{i + 1}</td>
                 {columns.map((c) => {
                   const cell = formatCell(row[c.name], c);
                   const numeric = numericCols.has(c.name);
@@ -123,7 +122,7 @@ export function ResultsTable({ columns, rows, totalRowCount, truncated, rowLimit
                     <td
                       key={c.name}
                       className={cn(
-                        "border-b border-line px-3 py-2 align-top",
+                        "border-b border-line px-3 py-1.5 align-top",
                         numeric ? "tnum text-right whitespace-nowrap" : "max-w-[28rem] min-w-[6rem] break-words",
                         cell.kind === "null" ? "text-faint italic" : "text-fg",
                         cell.kind === "json" && "font-mono text-xs",
@@ -143,7 +142,7 @@ export function ResultsTable({ columns, rows, totalRowCount, truncated, rowLimit
           <span className="tnum">
             Showing {formatNumber(visible)} of {formatNumber(rows.length)} returned rows
           </span>
-          <Button size="sm" variant="secondary" onClick={() => setVisible((v) => v + PAGE_SIZE * 4)}>
+          <Button size="sm" onClick={() => setVisible((v) => v + PAGE_SIZE * 4)}>
             Show more
           </Button>
         </div>

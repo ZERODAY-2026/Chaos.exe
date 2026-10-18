@@ -3,7 +3,6 @@
 import { ArrowUp, Database, Square } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Kbd } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
 import { useWorkspace } from "@/components/workspace-provider";
 import { cn } from "@/lib/utils";
 
@@ -71,10 +70,9 @@ export function QuestionComposer({ variant = "hero", autoFocus }: { variant?: "h
     <form onSubmit={submit} className="w-full" noValidate>
       <div
         className={cn(
-          "group relative rounded-2xl border bg-surface transition-[border-color,box-shadow] duration-200",
-          "focus-within:border-accent/50 focus-within:shadow-[0_0_0_4px_var(--accent-soft)]",
-          error ? "border-danger/50" : "border-line-strong",
-          hero && "shadow-elevated",
+          "rounded-md border bg-surface transition-[border-color,box-shadow] duration-100",
+          "focus-within:border-accent focus-within:shadow-[0_0_0_1px_var(--accent)]",
+          error ? "border-danger/60" : "border-line-strong hover:border-faint",
         )}
       >
         <label htmlFor="dm-question" className="sr-only">
@@ -91,23 +89,19 @@ export function QuestionComposer({ variant = "hero", autoFocus }: { variant?: "h
           onKeyDown={onKeyDown}
           rows={hero ? 2 : 1}
           maxLength={MAX_QUESTION_LENGTH + 200}
-          placeholder="Ask a question about your data…"
+          placeholder={hero ? "e.g. Which product category had the highest revenue last quarter?" : "Ask another question…"}
           aria-invalid={!!error}
           aria-describedby={cn(error && errorId, hintId) || undefined}
           className={cn(
             "block w-full resize-none bg-transparent text-fg placeholder:text-faint focus:outline-none",
-            hero ? "px-5 pt-4.5 pb-2 text-[16px] leading-relaxed" : "px-4 pt-3 pb-1.5 text-[15px] leading-relaxed",
+            hero ? "px-3.5 pt-3 pb-1 text-[15px] leading-relaxed" : "px-3 pt-2.5 pb-1 text-[14px] leading-relaxed",
           )}
         />
-        <div className={cn("flex items-center gap-2", hero ? "px-3.5 pb-3.5" : "px-3 pb-2.5")}>
-          <span
-            id={hintId}
-            className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] text-muted"
-            title="Questions run against this data source"
-          >
-            <Database className="size-3 shrink-0 text-faint" />
-            <span className="truncate">{sourceLabel}</span>
-            {mode === "demo" && <span className="font-medium text-warning">demo</span>}
+        <div className="flex items-center gap-3 px-3 pb-2">
+          <span id={hintId} className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-faint" title="Questions run against this data source">
+            <Database className="size-3 shrink-0" />
+            <span className="truncate font-mono">{sourceLabel}</span>
+            {mode === "demo" && <span className="text-warning">demo</span>}
           </span>
           {nearLimit && (
             <span className={cn("tnum text-[11px]", length > MAX_QUESTION_LENGTH ? "text-danger" : "text-faint")}>
@@ -115,16 +109,15 @@ export function QuestionComposer({ variant = "hero", autoFocus }: { variant?: "h
             </span>
           )}
           <span className="ml-auto hidden items-center gap-1 text-[11px] text-faint md:inline-flex">
-            <Kbd>Enter</Kbd> to ask <span className="mx-0.5">·</span> <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> new line
+            <Kbd>Enter</Kbd> to ask, <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> for a new line
           </span>
           {running ? (
             <button
               type="button"
               onClick={cancelQuery}
-              className="ml-auto inline-flex h-9 items-center gap-2 rounded-xl border border-line-strong bg-surface-2 px-3 text-xs font-medium text-fg transition-colors hover:bg-surface-3 md:ml-0"
+              className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong px-2.5 text-xs font-medium text-fg transition-colors hover:bg-surface-2 md:ml-0"
             >
-              <Spinner className="size-3.5 text-accent" />
-              <Square className="size-3 fill-current" />
+              <Square className="size-2.5 fill-current" />
               Stop
             </button>
           ) : (
@@ -134,25 +127,24 @@ export function QuestionComposer({ variant = "hero", autoFocus }: { variant?: "h
               aria-label="Ask question"
               title={blocked ? "The data source is not connected" : "Ask (Enter)"}
               className={cn(
-                "ml-auto inline-flex size-9 items-center justify-center rounded-xl transition-all duration-150 md:ml-0",
-                "bg-accent text-accent-fg hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40",
-                "shadow-[0_6px_18px_-6px_var(--accent)]",
-                length === 0 && "opacity-60",
+                "ml-auto inline-flex size-7 items-center justify-center rounded-md transition-colors duration-100 md:ml-0",
+                "bg-primary text-primary-fg hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-35",
+                length === 0 && "opacity-50",
               )}
             >
-              <ArrowUp className="size-4.5" strokeWidth={2.4} />
+              <ArrowUp className="size-4" strokeWidth={2.25} />
             </button>
           )}
         </div>
       </div>
       <div aria-live="polite" className="min-h-0">
         {error && (
-          <p id={errorId} className="mt-2 px-1 text-xs text-danger">
+          <p id={errorId} className="mt-1.5 text-xs text-danger">
             {error}
           </p>
         )}
         {!error && blocked && !running && (
-          <p className="mt-2 px-1 text-xs text-muted">
+          <p className="mt-1.5 text-xs text-muted">
             {backendDown ? "The backend is not reachable, so questions cannot run right now." : "The selected data source is not connected."}
           </p>
         )}
