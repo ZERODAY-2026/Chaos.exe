@@ -1,15 +1,14 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
+/** Text-first empty and error states. Left-aligned so they line up with the content around them. */
 export function EmptyState({
-  icon,
   title,
   children,
   action,
   tone = "neutral",
   className,
 }: {
-  icon: ReactNode;
   title: string;
   children?: ReactNode;
   action?: ReactNode;
@@ -17,20 +16,10 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center justify-center px-6 py-12 text-center", className)}>
-      <div
-        className={cn(
-          "mb-4 flex size-11 items-center justify-center rounded-xl border [&>svg]:size-5",
-          tone === "danger" && "border-transparent bg-danger-soft text-danger",
-          tone === "warning" && "border-transparent bg-warning-soft text-warning",
-          tone === "neutral" && "border-line-strong bg-surface-2 text-muted",
-        )}
-      >
-        {icon}
-      </div>
-      <h3 className="text-sm font-semibold text-fg">{title}</h3>
-      {children && <div className="mt-1.5 max-w-md text-sm leading-relaxed text-muted">{children}</div>}
-      {action && <div className="mt-5 flex flex-wrap justify-center gap-2">{action}</div>}
+    <div className={cn("px-5 py-8", className)}>
+      <h3 className={cn("text-sm font-medium", tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : "text-fg")}>{title}</h3>
+      {children && <div className="mt-1 max-w-lg text-[13px] leading-relaxed text-muted">{children}</div>}
+      {action && <div className="mt-4 flex flex-wrap gap-2">{action}</div>}
     </div>
   );
 }

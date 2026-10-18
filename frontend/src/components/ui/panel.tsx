@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/** A titled section. Used selectively for result blocks, not as a wrapper for everything. */
+/** A titled, bordered block for data: tables, SQL, details. The title sits in a slim header row. */
 export function Panel({
   title,
-  icon,
   actions,
   meta,
   children,
@@ -13,7 +12,6 @@ export function Panel({
   id,
 }: {
   title: ReactNode;
-  icon?: ReactNode;
   actions?: ReactNode;
   meta?: ReactNode;
   children: ReactNode;
@@ -23,18 +21,16 @@ export function Panel({
 }) {
   const headingId = id ? `${id}-heading` : undefined;
   return (
-    <section id={id} aria-labelledby={headingId} className={cn("panel enter min-w-0 overflow-hidden", className)}>
-      <header className="flex min-h-12 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          {icon && <span className="text-faint [&>svg]:size-4">{icon}</span>}
-          <h2 id={headingId} className="text-[13px] font-semibold tracking-tight text-fg">
-            {title}
-          </h2>
-          {meta && <div className="flex min-w-0 items-center gap-1.5 text-xs text-faint">{meta}</div>}
-        </div>
-        {actions && <div className="ml-auto flex items-center gap-1">{actions}</div>}
+    <section id={id} aria-labelledby={headingId} className={cn("panel min-w-0 overflow-hidden", className)}>
+      <header className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 py-1.5">
+        <h2 id={headingId} className="text-[13px] font-medium text-fg">
+          {title}
+        </h2>
+        {meta && <div className="flex min-w-0 items-center gap-1.5 text-xs text-faint">{meta}</div>}
+        {actions && <div className="-mr-2 ml-auto flex items-center gap-0.5">{actions}</div>}
       </header>
-      <div className={cn("p-4", bodyClassName)}>{children}</div>
+      {/* bodyClassName replaces the default padding rather than competing with it. */}
+      <div className={bodyClassName ?? "p-4"}>{children}</div>
     </section>
   );
 }

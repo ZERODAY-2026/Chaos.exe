@@ -1,13 +1,13 @@
 "use client";
 
-import { CornerDownRight, Sparkles } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useSuggestions } from "@/hooks/use-suggestions";
 import { useWorkspace } from "@/components/workspace-provider";
 import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL = {
   backend: "Suggested from your dataset",
-  schema: "Generated from the connected schema",
+  schema: "Based on the connected schema",
   none: "",
 } as const;
 
@@ -18,25 +18,22 @@ export function SuggestedQuestions({ layout = "grid" }: { layout?: "grid" | "inl
 
   if (loading) {
     return (
-      <div className={cn(layout === "grid" ? "grid gap-2 sm:grid-cols-2" : "flex flex-wrap gap-2")} aria-hidden="true">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className={cn("skeleton", layout === "grid" ? "h-12" : "h-8 w-56")} />
+      <div className="space-y-2" aria-hidden="true">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="skeleton h-4 w-2/3" />
         ))}
       </div>
     );
   }
   if (!questions.length) return null;
 
-  const label = mode === "demo" ? "Sample questions available in demo mode" : SOURCE_LABEL[source];
+  const label = mode === "demo" ? "Sample questions (demo mode)" : SOURCE_LABEL[source];
+  const inline = layout === "inline";
 
   return (
     <div>
-      <div className="mb-2.5 flex items-center gap-1.5 text-xs text-faint">
-        <Sparkles className="size-3.5 text-accent" />
-        <span>{label}</span>
-        <span className="hidden sm:inline">· select one to ask it</span>
-      </div>
-      <ul className={cn(layout === "grid" ? "grid gap-2 sm:grid-cols-2" : "flex flex-wrap gap-2")}>
+      <h2 className="eyebrow mb-2">{inline ? "Ask next" : label || "Try asking"}</h2>
+      <ul className={cn(inline ? "flex flex-wrap gap-2" : "-mx-2 divide-y divide-line")}>
         {questions.map((q) => (
           <li key={q} className="min-w-0">
             <button
@@ -47,14 +44,15 @@ export function SuggestedQuestions({ layout = "grid" }: { layout?: "grid" | "inl
                 runQuery(q);
               }}
               className={cn(
-                "group flex w-full min-w-0 items-center gap-2.5 text-left text-[13px] text-muted transition-all duration-150",
-                "border border-line bg-surface/60 hover:border-accent/40 hover:bg-surface hover:text-fg",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-                layout === "grid" ? "rounded-xl px-3.5 py-3" : "rounded-lg px-3 py-1.5",
+                "group flex w-full min-w-0 items-center gap-3 text-left text-[13px] text-muted transition-colors duration-100",
+                "hover:text-fg disabled:cursor-not-allowed disabled:opacity-50",
+                inline ? "h-7 rounded-md border border-line-strong px-2.5 hover:bg-surface-2" : "rounded-md px-2 py-2 hover:bg-surface",
               )}
             >
-              <CornerDownRight className="size-3.5 shrink-0 text-faint transition-colors group-hover:text-accent" />
-              <span className={cn(layout === "grid" ? "line-clamp-2" : "truncate")}>{q}</span>
+              <span className="truncate">{q}</span>
+              {!inline && (
+                <ArrowRight className="ml-auto size-3.5 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+              )}
             </button>
           </li>
         ))}

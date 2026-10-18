@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleHelp, FileWarning, FlaskConical, PlugZap, RotateCcw, ServerCrash, ShieldOff, TimerOff, TriangleAlert } from "lucide-react";
+import { ArrowRight, CircleHelp, FileWarning, FlaskConical, PlugZap, RotateCcw, ServerCrash, ShieldOff, TimerOff, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/components/workspace-provider";
@@ -27,25 +27,24 @@ function StatePanel({
   actions?: ReactNode;
 }) {
   return (
-    <section role={tone === "danger" ? "alert" : "status"} className="enter overflow-hidden rounded-xl border border-line bg-surface">
-      <div className="flex gap-4 p-5 sm:p-6">
-        <div
+    <section role={tone === "danger" ? "alert" : "status"} className="panel px-5 py-4 sm:px-6 sm:py-5">
+      <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-faint">
+        <span
           className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-xl [&>svg]:size-5",
-            tone === "danger" && "bg-danger-soft text-danger",
-            tone === "warning" && "bg-warning-soft text-warning",
-            tone === "cyan" && "bg-cyan-soft text-cyan",
+            "inline-flex [&>svg]:size-3.5",
+            tone === "danger" && "text-danger",
+            tone === "warning" && "text-warning",
+            tone === "cyan" && "text-cyan",
           )}
+          aria-hidden="true"
         >
           {icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-faint">{eyebrow}</div>
-          <h2 className="text-base leading-snug font-semibold text-balance text-fg">{title}</h2>
-          {children && <div className="mt-2 space-y-3 text-sm leading-relaxed text-muted">{children}</div>}
-          {actions && <div className="mt-4 flex flex-wrap gap-2">{actions}</div>}
-        </div>
+        </span>
+        {eyebrow}
       </div>
+      <h2 className="max-w-3xl text-[15px] leading-snug font-semibold text-balance text-fg">{title}</h2>
+      {children && <div className="mt-2 max-w-3xl space-y-3 text-[13px] leading-relaxed text-muted">{children}</div>}
+      {actions && <div className="mt-4 flex flex-wrap gap-2">{actions}</div>}
     </section>
   );
 }
@@ -69,7 +68,7 @@ export function ClarificationPanel({ result }: { result: QueryResult }) {
         You asked: <span className="text-fg">“{result.question}”</span>. No SQL was run.
       </p>
       {c?.options?.length ? (
-        <ul className="flex flex-col gap-2 pt-1">
+        <ul className="-mx-1 flex flex-col pt-1">
           {c.options.map((o) => (
             <li key={o}>
               <button
@@ -78,8 +77,9 @@ export function ClarificationPanel({ result }: { result: QueryResult }) {
                   setDraft(o);
                   runQuery(o);
                 }}
-                className="w-full rounded-lg border border-line-strong bg-surface-2 px-3.5 py-2.5 text-left text-[13px] text-fg transition-colors hover:border-cyan/50 hover:bg-surface-3"
+                className="group flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-[13px] text-fg transition-colors hover:bg-surface-2"
               >
+                <ArrowRight className="size-3.5 shrink-0 text-faint group-hover:text-fg" />
                 {o}
               </button>
             </li>
@@ -152,7 +152,7 @@ export function ResponseErrorPanel({ result }: { result: QueryResult }) {
         eyebrow={<SourceBadge source="demo" />}
         title="Demo mode only knows the sample questions."
         actions={
-          <Button variant="secondary" size="sm" onClick={() => setMode("live")}>
+          <Button size="sm" onClick={() => setMode("live")}>
             Switch to live backend
           </Button>
         }
@@ -177,12 +177,12 @@ export function ResponseErrorPanel({ result }: { result: QueryResult }) {
       }
       title={copy.title}
       actions={
-        <Button variant="secondary" size="sm" icon={<RotateCcw className="size-3.5" />} onClick={() => runQuery(result.question)}>
+        <Button size="sm" icon={<RotateCcw className="size-3.5" />} onClick={() => runQuery(result.question)}>
           Try again
         </Button>
       }
     >
-      {r.error?.message && <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-xs break-words text-fg">{r.error.message}</p>}
+      {r.error?.message && <p className="rounded-md border border-line bg-bg px-3 py-2 font-mono text-xs break-words text-fg">{r.error.message}</p>}
       <p>{copy.hint}</p>
       {r.sql && (
         <div className="space-y-2 pt-1">
@@ -197,7 +197,7 @@ export function ResponseErrorPanel({ result }: { result: QueryResult }) {
 export function RequestFailedPanel({ question, error }: { question: string; error: ApiError }) {
   const { runQuery, refreshHealth, setMode } = useWorkspace();
   const retry = (
-    <Button variant="secondary" size="sm" icon={<RotateCcw className="size-3.5" />} onClick={() => runQuery(question)}>
+    <Button size="sm" icon={<RotateCcw className="size-3.5" />} onClick={() => runQuery(question)}>
       Try again
     </Button>
   );
@@ -215,7 +215,7 @@ export function RequestFailedPanel({ question, error }: { question: string; erro
             <Button variant="ghost" size="sm" onClick={refreshHealth}>
               Check connection
             </Button>
-            <Button variant="ghost" size="sm" icon={<FlaskConical className="size-3.5" />} onClick={() => setMode("demo")}>
+            <Button variant="ghost" size="sm" onClick={() => setMode("demo")}>
               Explore demo mode
             </Button>
           </>

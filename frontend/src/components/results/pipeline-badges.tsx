@@ -1,6 +1,6 @@
-import { CircleCheck, CircleDashed, CircleX } from "lucide-react";
-import { Badge, type Tone } from "@/components/ui/badge";
+import { Check, Minus, X } from "lucide-react";
 import type { QueryResponse } from "@/lib/api-types";
+import { cn } from "@/lib/utils";
 
 type Step = { label: string; state: "yes" | "no" | "unknown"; detail: string };
 
@@ -27,20 +27,28 @@ export function pipelineSteps(r: QueryResponse): Step[] {
   return [generated, validated, executed];
 }
 
-const toneFor: Record<Step["state"], Tone> = { yes: "success", no: "danger", unknown: "neutral" };
-
+/** A compact checklist: generated → validated → executed. */
 export function PipelineBadges({ response }: { response: QueryResponse }) {
   const steps = pipelineSteps(response);
   return (
-    <ul className="flex flex-wrap gap-1.5" aria-label="Query pipeline status">
+    <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" aria-label="Query pipeline status">
       {steps.map((s) => {
-        const Icon = s.state === "yes" ? CircleCheck : s.state === "no" ? CircleX : CircleDashed;
-        const tone = s.label === "Not executed" && response.status === "success" ? "warning" : toneFor[s.state];
+        const Icon = s.state === "yes" ? Check : s.state === "no" ? X : Minus;
+        const soft = s.label === "Not executed" && response.status === "success";
         return (
-          <li key={s.label} title={s.detail}>
-            <Badge tone={tone} icon={<Icon className="size-3" />}>
-              {s.label}
-            </Badge>
+          <li key={s.label} title={s.detail} className="inline-flex items-center gap-1.5 text-muted">
+            <Icon
+              className={cn(
+                "size-3.5",
+                s.state === "yes" && "text-success",
+                s.state === "no" && (soft ? "text-warning" : "text-danger"),
+                s.state === "unknown" && "text-faint",
+              )}
+              strokeWidth={2.25}
+              aria-hidden="true"
+            />
+            <span>{s.label}</span>
+            <span className="sr-only">{s.state === "yes" ? "(done)" : s.state === "no" ? "(no)" : "(not reported)"}</span>
           </li>
         );
       })}

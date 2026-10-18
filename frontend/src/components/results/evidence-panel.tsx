@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, ShieldCheck } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
@@ -10,8 +10,8 @@ import { copyText } from "@/lib/utils";
 
 function Row({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
-    <div className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-3 border-b border-line py-2 last:border-0">
-      <dt className="text-xs text-faint" title={hint}>
+    <div className="grid grid-cols-[minmax(0,8.5rem)_minmax(0,1fr)] gap-3 border-b border-line py-1.5 last:border-0">
+      <dt className="pt-px text-xs text-faint" title={hint}>
         {label}
       </dt>
       <dd className="min-w-0 text-[13px] break-words text-fg">{children}</dd>
@@ -31,7 +31,7 @@ function CopyableId({ value }: { value: string }) {
       <IconButton
         size="sm"
         label={done ? "Copied" : "Copy ID"}
-        className="size-6"
+        className="size-5"
         onClick={async () => {
           if (await copyText(value)) {
             setDone(true);
@@ -54,7 +54,7 @@ export function EvidencePanel({ result }: { result: QueryResult }) {
   const hasEvidence = !!(ex || r.validation || tables.length || r.row_count !== undefined || r.sql);
 
   return (
-    <Panel id="evidence" title="Evidence" icon={<ShieldCheck />} bodyClassName="px-4 py-1">
+    <Panel id="evidence" title="Evidence" bodyClassName="px-4 py-1">
       {!hasEvidence ? (
         <p className="py-3 text-sm text-muted">Evidence details are not available for this response.</p>
       ) : (
@@ -67,7 +67,7 @@ export function EvidencePanel({ result }: { result: QueryResult }) {
             {tables.length ? (
               <ul className="flex flex-wrap gap-1">
                 {tables.map((t) => (
-                  <li key={t} className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted">
+                  <li key={t} className="rounded-sm border border-line px-1.5 font-mono text-[11px] text-muted">
                     {t}
                   </li>
                 ))}
