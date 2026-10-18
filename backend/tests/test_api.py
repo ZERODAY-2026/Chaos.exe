@@ -36,6 +36,7 @@ def isolated_env(tmp_path, monkeypatch):
 
 def make_client(**kwargs):
     kwargs.setdefault("health_cache_seconds", 0)
+    kwargs.setdefault("generator", None)  # no Ollama in unit tests
     kwargs.setdefault("env", {})
     return TestClient(create_app(**kwargs))
 
@@ -245,7 +246,7 @@ def test_query_direct_sql_executes_on_duckdb(client):
     assert body["execution"]["duration_ms"] >= 0
     assert body["execution"]["started_at"].endswith("Z")
     assert body["execution"]["database"] == "api"
-    assert body["answer"] == "The query returned 2 rows."
+    assert body["answer"] == "The query returned 2 rows. First row: category = Electronics, revenue = 166000.0."
     assert "No language model was used" in body["explanation"]["summary"]
     assert any("Direct SQL mode" in w for w in body["warnings"])
     assert "model" not in body  # no model was involved
@@ -459,3 +460,206 @@ def test_every_response_is_strict_json(client):
     for q in [REVENUE_SQL, "hello", "SELECT 1; DROP TABLE x", "SELECT * FROM nope", "SELECT 'nan'::DOUBLE"]:
         res = client.post("/api/query", json={"question": q})
         json.loads(res.text, parse_constant=lambda c: pytest.fail(f"non-JSON constant {c}"))
+
+
+# --- natural-language questions through Gemma (model mocked) -------------------- #
+
+from app.gemma import (  # noqa: E402
+    GemmaBadOutputError,
+    GemmaTimeoutError,
+    GemmaUnavailableError,
+    Generation,
+    ModelStatus,
+    OllamaGemma,
+)
+
+
+class FakeGemma:
+    """Stands in for OllamaGemma. Records what it was asked; returns canned output."""
+
+    def __init__(self, sql=None, refusal=None, error=None, available=True):
+        self.sql, self.refusal, self.error, self.available = sql, refusal, error, available
+        self.calls = []
+
+    def status(self):
+        detail = None if self.available else "Ollama is not reachable"
+        return ModelStatus("gemma3:1b", "Ollama", self.available, detail)
+
+    def generate(self, question, schema_text, dialect):
+        self.calls.append({"question": question, "schema": schema_text, "dialect": dialect})
+        if self.error:
+            raise self.error
+        return Generation(model="gemma3:1b", duration_ms=1234.5, sql=self.sql, refusal=self.refusal)
+
+
+QUESTION = "What is the revenue by category?"
+
+
+def test_health_reports_model_available_and_ok():
+    with make_client(generator=FakeGemma()) as c:
+        body = c.get("/api/health").json()
+    assert body["model"] == {"name": "gemma3:1b", "runtime": "Ollama", "available": True, "detail": None}
+    assert body["status"] == "ok"
+
+
+def test_health_reports_model_unavailable_as_degraded():
+    with make_client(generator=FakeGemma(available=False)) as c:
+        body = c.get("/api/health").json()
+    assert body["model"]["available"] is False and body["status"] == "degraded"
+
+
+def test_nl_question_generates_validates_and_executes():
+    fake = FakeGemma(sql=REVENUE_SQL)
+    with make_client(generator=fake) as c:
+        status, body = ask(c, QUESTION)
+    assert status == 200 and body["status"] == "success"
+    assert body["executed"] is True
+    assert body["sql"] == REVENUE_SQL
+    # Rows come from the database, not from the model.
+    assert body["rows"] == [["Electronics", 166000.0], ["Furniture", 36000.0]]
+    assert body["answer"] == "The query returned 2 rows. First row: category = Electronics, revenue = 166000.0."
+    assert body["model"] == {"name": "gemma3:1b", "duration_ms": 1234.5}
+    assert body["validation"]["passed"] is True
+    assert "Gemma (gemma3:1b) wrote this SQL" in body["explanation"]["summary"]
+    assert any("small language model" in w for w in body["warnings"])
+    # The model saw the real schema and the right dialect.
+    [call] = fake.calls
+    assert call["question"] == QUESTION and call["dialect"] == "DuckDB"
+    assert "sales(order_id INTEGER" in call["schema"]
+
+
+def test_nl_question_uses_snowflake_schema_and_dialect():
+    provider, _ = fake_snowflake()
+    fake = FakeGemma(sql="SELECT region, revenue, day FROM sales")
+    with make_client(providers={"duckdb": DuckDBProvider(), "snowflake": provider}, generator=fake) as c:
+        _, body = ask(c, QUESTION, provider="snowflake")
+    assert body["status"] == "success" and body["executed"] is True
+    assert fake.calls[0]["dialect"] == "Snowflake"
+    assert "SALES(AMOUNT NUMBER)" in fake.calls[0]["schema"]
+    assert body["execution"]["provider_query_id"] == FakeSnowflakeCursor.sfqid
+
+
+@pytest.mark.parametrize(
+    "bad_sql",
+    [
+        "DELETE FROM sales",
+        "SELECT 1; DROP TABLE sales",
+        "WITH x AS (DELETE FROM sales RETURNING *) SELECT * FROM x",
+        "SELECT * INTO stolen FROM sales",
+    ],
+)
+def test_unsafe_generated_sql_is_refused_and_never_executed(bad_sql):
+    executed = []
+
+    class Spy(DuckDBProvider):
+        def run_query(self, sql):
+            executed.append(sql)
+            return super().run_query(sql)
+
+    with make_client(providers={"duckdb": Spy()}, generator=FakeGemma(sql=bad_sql)) as c:
+        _, body = ask(c, "please clean up the table")
+        count = ask(c, "SELECT COUNT(*) FROM sales")[1]["rows"]
+    assert body["status"] == "refused" and body["executed"] is False
+    assert body["sql"] == bad_sql and body["validation"]["passed"] is False
+    assert body["model"]["name"] == "gemma3:1b"
+    assert bad_sql not in executed
+    assert count == [[6]]
+
+
+def test_malformed_generated_sql_is_validation_error():
+    with make_client(generator=FakeGemma(sql="SELECT 'unterminated")) as c:
+        _, body = ask(c, QUESTION)
+    assert body["status"] == "error" and body["error"]["stage"] == "validation"
+    assert body["executed"] is False
+
+
+def test_generated_sql_that_fails_in_database_is_execution_error():
+    with make_client(generator=FakeGemma(sql="SELECT revenue FROM orders")) as c:
+        _, body = ask(c, QUESTION)
+    assert body["status"] == "error"
+    assert body["error"]["stage"] == "execution" and body["error"]["code"] == "execution_failed"
+    assert body["executed"] is False and "rows" not in body and "answer" not in body
+    assert body["sql"] == "SELECT revenue FROM orders"
+
+
+def test_model_refusal_is_refused_without_sql():
+    with make_client(generator=FakeGemma(refusal="there is no customer data")) as c:
+        _, body = ask(c, "Who is our best customer?")
+    assert body["status"] == "refused" and body["executed"] is False
+    assert "there is no customer data" in body["answer"]
+    assert "sql" not in body and "rows" not in body
+
+
+@pytest.mark.parametrize(
+    "error, code",
+    [
+        (GemmaUnavailableError("Ollama is not reachable at http://127.0.0.1:11434."), "model_unavailable"),
+        (GemmaUnavailableError("Model gemma3:1b is not available in Ollama. Run: ollama pull gemma3:1b"),
+         "model_unavailable"),
+        (GemmaTimeoutError("Gemma did not respond within 120 seconds."), "model_timeout"),
+        (GemmaBadOutputError("The model did not return a SQL query."), "model_bad_output"),
+    ],
+)
+def test_model_failures_are_generation_errors(error, code):
+    with make_client(generator=FakeGemma(error=error)) as c:
+        status, body = ask(c, QUESTION)
+    assert status == 200
+    assert body["status"] == "error"
+    assert body["error"] == {"stage": "generation", "code": code, "message": str(error)}
+    assert body["executed"] is False
+    for absent in ("sql", "rows", "answer"):
+        assert absent not in body
+
+
+def test_direct_sql_does_not_call_the_model():
+    fake = FakeGemma(sql="SELECT 999")
+    with make_client(generator=fake) as c:
+        _, body = ask(c, "SELECT 1 AS one")
+    assert body["rows"] == [[1]] and fake.calls == []
+    assert "model" not in body
+
+
+def test_schema_failure_before_generation():
+    class NoSchema(DuckDBProvider):
+        def get_schema(self):
+            raise RuntimeError("catalog unavailable")
+
+    fake = FakeGemma(sql="SELECT 1")
+    with make_client(providers={"duckdb": NoSchema()}, generator=fake) as c:
+        _, body = ask(c, QUESTION)
+    assert body["error"]["stage"] == "generation" and body["error"]["code"] == "schema_unavailable"
+    assert "catalog unavailable" not in body["error"]["message"]  # non-DB error details hidden
+    assert fake.calls == []
+
+
+def test_unconfigured_snowflake_nl_question():
+    fake = FakeGemma(sql="SELECT 1")
+    with make_client(generator=fake) as c:
+        _, body = ask(c, QUESTION, provider="snowflake")
+    assert body["error"]["code"] == "provider_not_configured"
+    assert fake.calls == []
+
+
+def test_schema_is_cached_between_questions():
+    calls = []
+
+    class Counting(DuckDBProvider):
+        def get_schema(self):
+            calls.append(1)
+            return super().get_schema()
+
+    with make_client(providers={"duckdb": Counting()}, generator=FakeGemma(sql="SELECT 1")) as c:
+        ask(c, QUESTION)
+        ask(c, QUESTION)
+    assert len(calls) == 1
+
+
+def test_default_generator_is_ollama_from_env(monkeypatch):
+    seen = []
+    monkeypatch.setattr(OllamaGemma, "status", lambda self: seen.append(self.model) or ModelStatus(
+        self.model, "Ollama", False, "stubbed"))
+    app = create_app(env={"DATAMIND_GEMMA_MODEL": "gemma3:4b"}, health_cache_seconds=0)
+    with TestClient(app) as c:
+        model = c.get("/api/health").json()["model"]
+    assert model["name"] == "gemma3:4b" and model["runtime"] == "Ollama"
+    assert seen == ["gemma3:4b"]

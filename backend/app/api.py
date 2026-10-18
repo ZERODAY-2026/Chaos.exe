@@ -5,10 +5,13 @@ Endpoints: ``GET /api/health``, ``GET /api/schema``, ``POST /api/query``.
 Honesty rules from the contract are enforced here:
 - ``executed`` is true only after the provider actually returned rows.
 - A provider is ``connected`` only if a real ``SELECT 1`` succeeded.
-- No Gemma runtime is integrated yet, so the model is reported unavailable and
-  natural-language questions return a ``model_unavailable`` error. Input that is
-  itself a SELECT/WITH statement is run directly ("direct SQL mode") through the
-  same validator, read-only connection and row limit, and is labeled as such.
+- Natural-language questions go to Gemma (local Ollama, see ``app/gemma.py``),
+  which only proposes SQL. The SQL is validated with ``validate_read_only_sql``
+  and executed through the provider (read-only connection / read-only role).
+  The answer is built from the returned rows, never from model prose. If Ollama
+  is unreachable the response is a ``model_unavailable`` error, not an answer.
+- Input that is itself a SELECT/WITH statement is run directly ("direct SQL
+  mode") through the same validator, read-only connection and row limit.
 
 Run locally (PowerShell, repo root)::
 
@@ -34,6 +37,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import database
+from .gemma import GemmaError, OllamaGemma, format_schema
 from .providers import (
     MAX_ROWS,
     DataProvider,
@@ -62,6 +66,14 @@ DIRECT_SQL_WARNING = (
     "Direct SQL mode: the input was run as SQL because it starts with SELECT or "
     "WITH. No language model was used."
 )
+GENERATED_SQL_WARNING = (
+    "This SQL was written by {model}, a small language model. It was validated as "
+    "read-only and actually executed; check the SQL to confirm it matches your question."
+)
+SCHEMA_CACHE_SECONDS = 300.0
+DIALECTS = {"duckdb": "DuckDB", "snowflake": "Snowflake"}
+
+_USE_DEFAULT = object()
 
 _SQL_START = re.compile(r"^\s*(?:(?:--[^\n]*\n|/\*.*?\*/)\s*)*(SELECT|WITH)\b", re.I | re.S)
 _SNOWFLAKE_HOST = re.compile(r"[\w.-]+\.snowflakecomputing\.com(?::\d+)?", re.I)
@@ -129,12 +141,17 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _row_summary(row_count: int, truncated: bool) -> str:
+def _row_summary(columns: list[str], rows: list[list[Any]], truncated: bool) -> str:
+    """A factual answer built only from the returned rows (no model wording)."""
     if truncated:
         return f"The query returned more than {MAX_ROWS} rows; showing the first {MAX_ROWS}."
-    if row_count == 0:
+    if not rows:
         return "The query ran and returned no rows."
-    return f"The query returned {row_count} row{'s' if row_count != 1 else ''}."
+    count = f"The query returned {len(rows)} row{'s' if len(rows) != 1 else ''}."
+    if len(columns) <= 4:
+        values = ", ".join(f"{c} = {v}" for c, v in zip(columns, rows[0]))
+        return f"{count} {'Result' if len(rows) == 1 else 'First row'}: {values}."
+    return count
 
 
 class _HealthCache:
@@ -182,8 +199,12 @@ def create_app(
     initialize_duckdb: bool = True,
     health_cache_seconds: float = HEALTH_CACHE_SECONDS,
     env: Mapping[str, str] | None = None,
+    generator: Any = _USE_DEFAULT,
 ) -> FastAPI:
+    """Build the API. ``generator`` is the question-to-SQL model client
+    (default: Ollama Gemma from env; ``None`` disables natural-language questions)."""
     env = os.environ if env is None else env
+    sql_generator = OllamaGemma.from_env(env) if generator is _USE_DEFAULT else generator
     registry: dict[str, DataProvider] = dict(
         providers
         if providers is not None
@@ -211,13 +232,29 @@ def create_app(
         allow_credentials=False,
     )
 
+    model_cache: dict[str, Any] = {"at": None, "value": None}
+    schema_cache: dict[str, tuple[float, str]] = {}
+
     def model_status() -> dict[str, Any]:
-        return {
-            "name": "Gemma",
-            "runtime": None,
-            "available": False,
-            "detail": "No Gemma runtime is connected to this backend yet.",
-        }
+        if sql_generator is None:
+            return {"name": "Gemma", "runtime": None, "available": False,
+                    "detail": "No Gemma runtime is configured."}
+        now = time.monotonic()
+        if model_cache["at"] is None or health_cache_seconds <= 0 or now - model_cache["at"] >= health_cache_seconds:
+            status = sql_generator.status()
+            model_cache["value"] = {"name": status.name, "runtime": status.runtime,
+                                    "available": status.available, "detail": status.detail}
+            model_cache["at"] = now
+        return dict(model_cache["value"])
+
+    def schema_text_for(pid: str, provider: DataProvider) -> str:
+        now = time.monotonic()
+        hit = schema_cache.get(pid)
+        if hit and now - hit[0] < SCHEMA_CACHE_SECONDS:
+            return hit[1]
+        text = format_schema(provider.get_schema())
+        schema_cache[pid] = (now, text)
+        return text
 
     # ---- /api/health ------------------------------------------------------ #
 
@@ -313,12 +350,46 @@ def create_app(
             return error("validation", "unknown_provider", f"Unknown provider: {pid}")
         provider = registry[pid]
 
-        if not (allow_direct_sql and looks_like_sql(body.question)):
-            # Natural-language question: needs Gemma, which is not connected.
-            return error("generation", "model_unavailable", MODEL_UNAVAILABLE_MESSAGE)
+        label = PROVIDER_LABELS.get(pid, pid)
 
-        sql = body.question
-        warnings = [DIRECT_SQL_WARNING]
+        if allow_direct_sql and looks_like_sql(body.question):
+            sql = body.question
+            warnings = [DIRECT_SQL_WARNING]
+            summary = f"Ran the SQL exactly as entered on {label}. No language model was used."
+        else:
+            # Natural-language question: Gemma proposes SQL; it is never trusted.
+            if sql_generator is None:
+                return error("generation", "model_unavailable", MODEL_UNAVAILABLE_MESSAGE)
+            try:
+                schema_text = schema_text_for(pid, provider)
+            except SnowflakeConfigError as exc:
+                return error("execution", "provider_not_configured", f"{pid} is not configured. {_public_error(exc)}")
+            except Exception as exc:
+                log.exception("Schema discovery failed for %s", pid)
+                message = _public_error(exc) if _is_database_error(exc) else "Schema discovery failed."
+                return error("generation", "schema_unavailable", f"Could not read the schema: {message}")
+            try:
+                generation = sql_generator.generate(body.question, schema_text, DIALECTS.get(pid, "ANSI"))
+            except GemmaError as exc:
+                return error("generation", exc.code, str(exc))
+            base["model"] = {"name": generation.model, "duration_ms": generation.duration_ms}
+            if generation.refusal or not generation.sql:
+                return respond(
+                    {
+                        "status": "refused",
+                        "answer": (
+                            "Gemma could not answer this from the available data: "
+                            f"{generation.refusal or 'no query was produced.'}"
+                        ),
+                    }
+                )
+            sql = generation.sql
+            warnings = [GENERATED_SQL_WARNING.format(model=generation.model)]
+            summary = (
+                f"Gemma ({generation.model}) wrote this SQL from your question using the "
+                f"{label} schema. It passed the read-only check and ran on {label}."
+            )
+
         try:
             validate_read_only_sql(sql)
         except UnsafeQueryError as exc:
@@ -372,13 +443,8 @@ def create_app(
         payload: dict[str, Any] = {
             "status": "success",
             "executed": True,
-            "answer": _row_summary(len(rows), truncated),
-            "explanation": {
-                "summary": (
-                    f"Ran the SQL exactly as entered on {PROVIDER_LABELS.get(pid, pid)}. "
-                    "No language model was used."
-                )
-            },
+            "answer": _row_summary(result["columns"], rows, truncated),
+            "explanation": {"summary": summary},
             "sql": sql,
             "validation": validation,
             "columns": [{"name": c} for c in result["columns"]],
