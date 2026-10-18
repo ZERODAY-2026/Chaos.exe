@@ -1,0 +1,14 @@
+# Local development database (stand-in for Snowflake during development only)
+duckdb==1.5.6
+
+# Snowflake (required for the final PS1 submission). 5.x tested; the provider
+# passes key-pair auth as DER bytes with authenticator=SNOWFLAKE_JWT.
+snowflake-connector-python>=5.0,<6
+
+# HTTP API for the frontend (backend/app/api.py)
+fastapi==0.143.3
+uvicorn==0.54.0
+
+# Testing (httpx is required by FastAPI's TestClient)
+pytest==9.1.1
+httpx==0.28.1
