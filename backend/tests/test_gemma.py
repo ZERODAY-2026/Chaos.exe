@@ -32,8 +32,62 @@ SCHEMA = {
 
 
 def test_format_schema():
-    assert format_schema(SCHEMA) == "SALES(CATEGORY TEXT, UNIT_PRICE FLOAT)"
+    assert format_schema(SCHEMA) == "SALES(CATEGORY (text), UNIT_PRICE (float))"
+    assert "QUANTITY_NUMBER" not in format_schema({"SALES": [{"name": "QUANTITY", "type": "NUMBER", "nullable": True}]})
     assert format_schema(SCHEMA, "PUBLIC").startswith("PUBLIC.SALES(")
+
+
+def test_join_hints_from_shared_key_columns():
+    from app.gemma import join_hints
+
+    schema = {
+        "customers": [{"name": "customer_id", "type": "INTEGER", "nullable": False},
+                      {"name": "city", "type": "VARCHAR", "nullable": False}],
+        "orders": [{"name": "order_id", "type": "INTEGER", "nullable": False},
+                   {"name": "customer_id", "type": "INTEGER", "nullable": False}],
+        "order_items": [{"name": "order_id", "type": "INTEGER", "nullable": False},
+                        {"name": "product_id", "type": "INTEGER", "nullable": False}],
+        "products": [{"name": "product_id", "type": "INTEGER", "nullable": False}],
+    }
+    assert sorted(join_hints(schema)) == [
+        "order_items.order_id = orders.order_id",
+        "order_items.product_id = products.product_id",
+        "orders.customer_id = customers.customer_id",
+    ]
+    text = format_schema(schema)
+    assert text.splitlines()[-1].startswith("Join keys: ")
+    assert join_hints(SCHEMA) == [] and "Join keys" not in format_schema(SCHEMA)
+
+
+def test_join_hints_for_prefixed_key_columns_like_tpch():
+    from app.gemma import join_hints
+
+    def cols(*names):
+        return [{"name": n, "type": "NUMBER", "nullable": False} for n in names]
+
+    schema = {
+        "CUSTOMER": cols("C_CUSTKEY", "C_NATIONKEY", "C_ACCTBAL"),
+        "ORDERS": cols("O_ORDERKEY", "O_CUSTKEY", "O_TOTALPRICE"),
+        "LINEITEM": cols("L_ORDERKEY", "L_PARTKEY", "L_SUPPKEY"),
+        "PART": cols("P_PARTKEY"),
+        "PARTSUPP": cols("PS_PARTKEY", "PS_SUPPKEY"),
+        "SUPPLIER": cols("S_SUPPKEY", "S_NATIONKEY"),
+        "NATION": cols("N_NATIONKEY", "N_REGIONKEY"),
+        "REGION": cols("R_REGIONKEY"),
+    }
+    hints = set(join_hints(schema))
+    assert {
+        "ORDERS.O_CUSTKEY = CUSTOMER.C_CUSTKEY",
+        "LINEITEM.L_ORDERKEY = ORDERS.O_ORDERKEY",
+        "LINEITEM.L_PARTKEY = PART.P_PARTKEY",
+        "PARTSUPP.PS_PARTKEY = PART.P_PARTKEY",
+        "LINEITEM.L_SUPPKEY = SUPPLIER.S_SUPPKEY",
+        "PARTSUPP.PS_SUPPKEY = SUPPLIER.S_SUPPKEY",
+        "CUSTOMER.C_NATIONKEY = NATION.N_NATIONKEY",
+        "SUPPLIER.S_NATIONKEY = NATION.N_NATIONKEY",
+        "NATION.N_REGIONKEY = REGION.R_REGIONKEY",
+    } == hints
+    assert not any("ACCTBAL" in h or "TOTALPRICE" in h for h in hints)
 
 
 def test_format_schema_truncates_large_schemas():
@@ -201,3 +255,68 @@ def test_status_ollama_down(monkeypatch):
     fake_urlopen(monkeypatch, lambda url, body: urllib.error.URLError(ConnectionRefusedError()))
     status = OllamaGemma().status()
     assert status.available is False and "not reachable" in status.detail
+
+
+# --- clarification and retry feedback ---------------------------------------- #
+
+from app.gemma import Clarification, parse_clarification  # noqa: E402
+
+
+def test_parse_clarification_with_options():
+    c = parse_clarification(
+        "CLARIFY: Do you mean revenue or units? || What is the total revenue per product? "
+        "|| How many units were sold per product?"
+    )
+    assert c == Clarification(
+        "Do you mean revenue or units?",
+        ("What is the total revenue per product?", "How many units were sold per product?"),
+    )
+
+
+def test_parse_clarification_without_options_and_noise():
+    assert parse_clarification("clarify: Which year?") == Clarification("Which year?", ())
+    assert parse_clarification("SELECT 1") is None
+    assert parse_clarification("```sql\nSELECT 1\n```\nCLARIFY: x") is None  # SQL wins
+    assert parse_clarification("CLARIFY:   ") is None
+
+
+def test_generate_returns_clarification(monkeypatch):
+    fake_urlopen(monkeypatch, lambda url, body: {"response": "CLARIFY: Which metric? || Total revenue? || Units?"})
+    g = OllamaGemma().generate("best product", "SALES(X TEXT)", "DuckDB")
+    assert g.sql is None and g.refusal is None
+    assert g.clarification.question == "Which metric?" and len(g.clarification.options) == 2
+
+
+def test_prompt_has_clarify_rule_example_and_feedback():
+    system, user = build_prompt("q", "S(X INT)", "DuckDB", feedback="Your previous SQL failed.\nError: bad")
+    assert "CLARIFY:" in system
+    # No worked example: gemma3:1b copied example patterns into real queries (measured).
+    assert "Example" not in system and "TRIPS" not in system
+    assert user.endswith("Your previous SQL failed.\nError: bad")
+    assert "previous SQL" not in build_prompt("q", "S(X INT)", "DuckDB")[1]
+
+
+def test_prompt_rules_target_measured_failures():
+    system, _ = build_prompt("q", "TABLE S\n  - X (integer)", "Snowflake")
+    for rule in ("never a sum of prices alone",          # S01/S02: SUM(unit_price) as revenue
+                 "SUM of the quantity column",            # S04: COUNT(quantity) as units
+                 "GROUP BY X (the entity named",          # S05: ranked category instead of product
+                 "do not filter the total",               # S07: share computed inside a filter
+                 "GROUP BY the period column",            # S09: one year only
+                 "AVG of those totals",                   # R09: AVG(quantity) as order value
+                 "Questions that need joins are answerable",  # T01/T03: joins refused
+                 "exactly one of those spellings"):       # S08/S10: invented filter values
+        assert rule in system, rule
+    assert "Example" not in system  # still no worked example to copy
+
+
+def test_generate_sets_context_window(monkeypatch):
+    calls = fake_urlopen(monkeypatch, lambda url, body: {"response": "SELECT 1"})
+    OllamaGemma().generate("q", "S(X INT)", "DuckDB")
+    assert calls[0]["body"]["options"]["num_ctx"] == gemma.NUM_CTX == 8192
+
+
+def test_generate_sends_feedback(monkeypatch):
+    calls = fake_urlopen(monkeypatch, lambda url, body: {"response": "SELECT 1"})
+    OllamaGemma().generate("q", "S(X INT)", "DuckDB", feedback="Error: invalid identifier 'PROFIT'")
+    assert "invalid identifier 'PROFIT'" in calls[0]["body"]["prompt"]

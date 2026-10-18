@@ -217,3 +217,30 @@ def test_duckdb_location(temp_db):
 
 def test_duckdb_result_has_no_provider_query_id(temp_db):
     assert "provider_query_id" not in DuckDBProvider().run_query("SELECT 1")
+
+
+# --- explicit DuckDB file (fixtures / isolated demo databases) ---------------- #
+
+
+def test_duckdb_provider_with_explicit_path(tmp_path, temp_db):
+    import duckdb
+
+    other = tmp_path / "other.duckdb"
+    with duckdb.connect(str(other)) as con:
+        con.execute("CREATE TABLE things (id INTEGER, label VARCHAR)")
+        con.execute("INSERT INTO things VALUES (1, 'a'), (2, 'b')")
+    provider = DuckDBProvider(db_path=other)
+    assert list(provider.get_schema()) == ["things"]
+    assert provider.run_query("SELECT COUNT(*) FROM things")["rows"] == [[2]]
+    assert provider.location() == {"database": "other", "schema": "main"}
+    # The default provider still points at the configured dev database.
+    assert list(DuckDBProvider().get_schema()) == ["sales"]
+
+
+def test_initialize_database_with_explicit_path(tmp_path):
+    from app import database
+
+    target = tmp_path / "seeded.duckdb"
+    database.initialize_database(target)
+    database.initialize_database(target)
+    assert DuckDBProvider(db_path=target).run_query("SELECT COUNT(*) FROM sales")["rows"] == [[6]]

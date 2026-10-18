@@ -26,8 +26,9 @@ dist/
 *.duckdb.wal
 *.db
 
-# Generated data and model directories
+# Generated data and model directories (data/ also holds the data-change demo DB)
 data/
+backend/eval/results/
 models/
 *.gguf
 *.safetensors

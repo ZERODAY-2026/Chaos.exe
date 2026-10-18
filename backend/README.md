@@ -1,153 +1,119 @@
-# DataMind backend: database layer
+# DataMind backend
 
-Owner: Member 1 (Database & Snowflake).
+FastAPI service that turns questions into validated, read-only SQL and runs it
+on Snowflake (submission target) or DuckDB (local development, evaluation and
+demos). Start with the [root README](../README.md) for setup and running;
+this page is the backend reference.
 
-> **Snowflake is mandatory for PS1.** DuckDB is used only for free local
-> development and must not replace Snowflake in the final submission.
+> **Snowflake is mandatory for PS1.** DuckDB is a local stand-in for
+> development, tests and the isolated demo; it never replaces Snowflake.
 
-## DuckDB (dev) vs Snowflake (real)
-
-| | `DuckDBProvider` | `SnowflakeProvider` |
-| --- | --- | --- |
-| Purpose | Local development and unit tests | Final submission, real queries |
-| Select with | `DATAMIND_PROVIDER=duckdb` (default) | `DATAMIND_PROVIDER=snowflake` |
-| Needs account / network | No | Yes |
-| Data | `data/datamind_dev.duckdb` (git-ignored) | Tables in your Snowflake database |
-| Read-only enforced by | `read_only=True` connection | Dedicated read-only **role** |
-| Identifier case | lower-case (`sales`) | upper-case (`SALES`) |
-
-Both implement the same interface, so the agent/API layer should only call
-`get_provider()` and the `DataProvider` methods.
-
-## Layout
+## Modules
 
 | File | Purpose |
 | --- | --- |
-| `app/database.py` | DuckDB dev database: `initialize_database()`, `get_schema()`, `get_category_revenue()` |
-| `app/providers.py` | `DataProvider`, `validate_read_only_sql()`, `DuckDBProvider`, `SnowflakeSettings`, `SnowflakeProvider`, `get_provider()` |
-| `scripts/generate_snowflake_keypair.py` | Creates a key pair outside the repo for key-pair auth |
-| `tests/` | Unit tests (no credentials needed) + opt-in live Snowflake tests |
-| `.env.example` | Template for `backend/.env` (git-ignored) |
+| `app/api.py` | Endpoints, request validation, CORS, query pipeline and bounded retry |
+| `app/gemma.py` | Ollama/Gemma client: prompt, `format_schema()` + `join_hints()`, output parsing, `status()` |
+| `app/guardrails.py` | `screen_question()`, `classify_db_error()`, `sanitize_error()`, `feedback_for_model()` |
+| `app/providers.py` | `DataProvider`, `validate_read_only_sql()`, `DuckDBProvider(db_path=None)`, `SnowflakeProvider`, `SnowflakeSettings` |
+| `app/sql_explain.py` | `explain_sql()` / `summarize()`: tables, filters and calculations parsed from executed SQL (SQLGlot) |
+| `app/results.py` | `MAX_ROWS` (1000), `format_result()`, `to_json_value()`, `build_schema()` |
+| `app/database.py` | DuckDB dev database (`data/datamind_dev.duckdb`, git-ignored) and the 6 synthetic `SALES` rows |
+| `eval/` | Evaluation fixtures, cases, comparison, runner and data-change demo ([eval/README.md](eval/README.md)) |
+| `scripts/generate_snowflake_keypair.py` | Key pair generation; refuses to write inside the repo |
+| `tests/` | Unit tests (no credentials) and opt-in live Snowflake tests |
 
-## Setup (Windows PowerShell)
+## Query pipeline (`POST /api/query`)
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-.\.venv\Scripts\python.exe -m pytest backend\tests -v
-```
-
-Unit tests use fakes for Snowflake: they need no credentials, network or
-account, and the live tests are skipped by default.
+1. **Direct SQL** (input starts with `SELECT`/`WITH`): validate, then execute. No model.
+2. **Natural language:**
+   1. `screen_question()` refuses data-modification, safety-bypass and forecast requests **before** the model is called.
+   2. The provider schema is discovered (cached 5 min) and formatted with join-key hints.
+   3. Gemma returns SQL, `CLARIFY: …` (→ `clarification_needed`) or `CANNOT_ANSWER: …` (→ `refused`).
+   4. `validate_read_only_sql()` runs on the generated SQL. Unsafe SQL is refused and never retried.
+   5. The provider executes it (read-only connection / role, ≤ 1,000 rows).
+   6. On a *fixable* error (`unknown_object`, `sql_syntax`, or malformed SQL) Gemma gets its own SQL plus
+      the sanitized error (no hostnames, request or query ids) and tries again. That attempt is validated again.
+      The limit is `DATAMIND_GEMMA_MAX_ATTEMPTS` (default 2, hard maximum 3). Permission errors, timeouts
+      and unknown errors are **never** retried.
+3. **Response:** `answer` built from the rows, `explanation` from `explain_sql()` on the SQL that actually ran,
+   `execution.provider_query_id` (Snowflake), warnings (including any failed attempt that was not used).
 
 ## Provider interface
 
 ```python
 class DataProvider(Protocol):
     name: str
-    def get_schema(self) -> dict[str, list[dict[str, str]]]: ...
-    def run_query(self, sql: str) -> dict[str, Any]:  # {"columns", "rows", "truncated"}
-        ...
+    def get_schema(self) -> Schema: ...        # {table: [{"name", "type", "nullable"}]}
+    def run_query(self, sql: str) -> QueryResult: ...  # {"columns", "rows", "truncated", "provider_query_id"?}
+    def location(self) -> dict[str, str]: ...  # {"database", "schema", "warehouse"?} (non-secret)
 ```
 
-`run_query` validates SQL with `validate_read_only_sql()` (single
-`SELECT`/`WITH` statement, no DDL/DML/`USE`/`SET`), returns at most `MAX_ROWS`
-(1000) rows and sets `truncated` when more exist. Snowflake sessions also get
-a 60 s statement timeout and `QUERY_TAG = 'datamind'`.
+Both providers share `run_query()`: validation first, then a read-only cursor,
+`MAX_ROWS` + 1 fetched to detect truncation, values converted to JSON. Snowflake
+sessions also set `STATEMENT_TIMEOUT_IN_SECONDS = 60`, `MULTI_STATEMENT_COUNT = 1`
+and `QUERY_TAG = 'datamind'`.
 
-> **Security:** the validator is a convenience filter, **not** a security
-> boundary. Keyword filtering can be bypassed. Real protection for Snowflake
-> comes from connecting as a dedicated role that has only `USAGE` and
-> `SELECT` grants. Never set `SNOWFLAKE_ROLE` to `ACCOUNTADMIN`, `SYSADMIN`
-> or any role that can write.
+> **Security:** the validator is a guardrail, not the security boundary. The
+> boundary is the database permission: read-only DuckDB connections (external
+> file/URL access disabled and locked) and a Snowflake role with only `USAGE`
+> and `SELECT`. Never configure `ACCOUNTADMIN`, `SYSADMIN` or any write-capable role.
+
+## Configuration (`backend/.env`, git-ignored)
+
+Copy `backend/.env.example`. The backend reads **process environment variables**;
+`.env` is not loaded automatically, so load it with the PowerShell line in the root README.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATAMIND_PROVIDER` | `duckdb` | Default provider: `duckdb` or `snowflake` |
+| `DATAMIND_DUCKDB_PATH` | `data/datamind_dev.duckdb` | Local DuckDB file |
+| `DATAMIND_ALLOW_DIRECT_SQL` | `true` | Allow typed `SELECT`/`WITH` input |
+| `DATAMIND_CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Allowed frontend origins |
+| `SNOWFLAKE_ACCOUNT` | – | `ORGNAME-ACCOUNTNAME` |
+| `SNOWFLAKE_USER` / `SNOWFLAKE_ROLE` / `SNOWFLAKE_WAREHOUSE` | – | `DATAMIND_SVC` / `DATAMIND_READONLY` / `DATAMIND_WH` |
+| `SNOWFLAKE_DATABASE` / `SNOWFLAKE_SCHEMA` | – | `DATAMIND` / `PUBLIC` (or another dataset, e.g. `SNOWFLAKE_SAMPLE_DATA` / `TPCH_SF1`) |
+| `SNOWFLAKE_PRIVATE_KEY_PATH` | – | Key-pair auth (preferred); file outside the repo |
+| `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE` | – | Only if the key is encrypted |
+| `SNOWFLAKE_PASSWORD` | – | Fallback only; ignored when a key path is set |
+| `DATAMIND_SNOWFLAKE_LIVE` | – | `1` enables `tests/test_snowflake_live.py` |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server |
+| `DATAMIND_GEMMA_MODEL` | `gemma3:1b` | Any pulled Gemma tag |
+| `DATAMIND_GEMMA_TIMEOUT` | `120` | Seconds per generation |
+| `DATAMIND_GEMMA_MAX_ATTEMPTS` | `2` | 1–3 attempts per question |
 
 ## Snowflake setup
 
-### 1. One-time objects (run in Snowsight as an admin, e.g. `ACCOUNTADMIN`)
+Run [`scripts/snowflake_setup.sql`](../scripts/snowflake_setup.sql) in Snowsight.
+It creates the X-Small auto-suspending warehouse, `DATAMIND.PUBLIC.SALES` (guarded
+`MERGE`, no duplicates), the read-only role, and the `TYPE = SERVICE` user, and
+ends with read-only verification queries. Administrator-only sections are marked.
 
-```sql
--- Cost-controlled warehouse
-CREATE WAREHOUSE IF NOT EXISTS DATAMIND_WH
-  WAREHOUSE_SIZE = 'XSMALL'
-  AUTO_SUSPEND = 60
-  AUTO_RESUME = TRUE
-  INITIALLY_SUSPENDED = TRUE;
-
-CREATE DATABASE IF NOT EXISTS DATAMIND;
-
--- Read-only role used by the app
-CREATE ROLE IF NOT EXISTS DATAMIND_READONLY;
-GRANT USAGE ON WAREHOUSE DATAMIND_WH TO ROLE DATAMIND_READONLY;
-GRANT USAGE ON DATABASE DATAMIND TO ROLE DATAMIND_READONLY;
-GRANT USAGE ON SCHEMA DATAMIND.PUBLIC TO ROLE DATAMIND_READONLY;
-GRANT SELECT ON ALL TABLES IN SCHEMA DATAMIND.PUBLIC TO ROLE DATAMIND_READONLY;
-GRANT SELECT ON FUTURE TABLES IN SCHEMA DATAMIND.PUBLIC TO ROLE DATAMIND_READONLY;
-
--- Service user for the app (key-pair auth)
-CREATE USER IF NOT EXISTS DATAMIND_SVC
-  TYPE = SERVICE
-  DEFAULT_ROLE = DATAMIND_READONLY
-  DEFAULT_WAREHOUSE = DATAMIND_WH;
-GRANT ROLE DATAMIND_READONLY TO USER DATAMIND_SVC;
-
--- Same sample data as the DuckDB dev database (load with an admin role)
-CREATE TABLE IF NOT EXISTS DATAMIND.PUBLIC.SALES (
-  ORDER_ID INTEGER PRIMARY KEY, PRODUCT VARCHAR NOT NULL, CATEGORY VARCHAR NOT NULL,
-  QUANTITY INTEGER NOT NULL, UNIT_PRICE DOUBLE NOT NULL, YEAR INTEGER NOT NULL
-);
-INSERT INTO DATAMIND.PUBLIC.SALES
-SELECT * FROM VALUES
-  (1,'Laptop','Electronics',2,50000.0,2024), (2,'Smartphone','Electronics',3,20000.0,2025),
-  (3,'Headphones','Electronics',4,1500.0,2025), (4,'Desk','Furniture',2,12000.0,2024),
-  (5,'Chair','Furniture',4,2500.0,2025), (6,'Lamp','Furniture',2,1000.0,2024)
-WHERE NOT EXISTS (SELECT 1 FROM DATAMIND.PUBLIC.SALES);
-```
-
-### 2. Authentication options
-
-**Option A: key-pair (preferred).** Snowflake does not allow password login
-for `TYPE = SERVICE` users, and human password users are subject to MFA,
-which a backend cannot complete. Generate a key outside the repo:
+**Key-pair authentication** (preferred: service users cannot use passwords, and
+password users face MFA a backend cannot complete):
 
 ```powershell
-.\.venv\Scripts\python.exe backend\scripts\generate_snowflake_keypair.py
-# add --passphrase to encrypt the key (you will be prompted)
+.\.venv\Scripts\python.exe backend\scripts\generate_snowflake_keypair.py      # add --passphrase to encrypt
 ```
 
-The script writes the private key to `~\.snowflake\datamind_rsa_key.p8` and
-prints an `ALTER USER DATAMIND_SVC SET RSA_PUBLIC_KEY = '...'` statement
-containing only the public key. Run that in Snowsight, then set
-`SNOWFLAKE_PRIVATE_KEY_PATH` (and `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE` if used).
+The private key goes to `~\.snowflake\datamind_rsa_key.p8`. The script prints an
+`ALTER USER DATAMIND_SVC SET RSA_PUBLIC_KEY = '…'` line containing only the
+public key; run it in Snowsight and set `SNOWFLAKE_PRIVATE_KEY_PATH`.
 
-**Option B: password (fallback).** Set `SNOWFLAKE_PASSWORD`. This requires a
-user type that still allows password login without interactive MFA. If
-`SNOWFLAKE_PRIVATE_KEY_PATH` is set, it takes precedence.
-
-### 3. Configure and run locally
-
-```powershell
-Copy-Item backend\.env.example backend\.env   # then edit backend\.env
-```
-
-The backend does not load `.env` automatically yet. To load it into the
-current PowerShell session only (values are not printed):
-
-```powershell
-Get-Content backend\.env | Where-Object { $_ -match '^\s*[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object { $k, $v = $_ -split '=', 2; [Environment]::SetEnvironmentVariable($k.Trim(), $v.Trim(), 'Process') }
-```
-
-Then verify real connectivity with the opt-in live tests:
+**Verify** (after loading `backend\.env`):
 
 ```powershell
 $env:DATAMIND_SNOWFLAKE_LIVE = '1'
 .\.venv\Scripts\python.exe -m pytest backend\tests\test_snowflake_live.py -v
 ```
 
-These check the session role and warehouse, the `SALES` schema, and the exact
-category revenue. Only a passing live run shows that Snowflake integration works.
+These check the session role and warehouse, the `SALES` schema and the exact
+category revenue. Only a passing live run proves the Snowflake integration.
 
-### Cost control
+**Second dataset (optional):** in the team account the read-only role could
+already read `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1` (checked 18 Oct 2026, no grant
+change made). If yours cannot, the narrowest change, which needs the account owner's
+approval, is `GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE_SAMPLE_DATA TO ROLE DATAMIND_READONLY;`.
 
-- Keep the warehouse `XSMALL` with `AUTO_SUSPEND = 60` and `AUTO_RESUME = TRUE`.
-- Suspend it manually when you finish: `ALTER WAREHOUSE DATAMIND_WH SUSPEND;`
-- Optionally add a resource monitor with a credit quota that suspends the warehouse.
+**Cost control:** X-Small, `AUTO_SUSPEND = 60`, `AUTO_RESUME = TRUE`; run
+`ALTER WAREHOUSE DATAMIND_WH SUSPEND;` when finished; optional resource monitor in the setup script.

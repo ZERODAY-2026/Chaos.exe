@@ -55,22 +55,21 @@ def get_db_path() -> Path:
 _READ_ONLY_CONFIG = {"enable_external_access": False, "lock_configuration": True}
 
 
-def _connect(read_only: bool) -> duckdb.DuckDBPyConnection:
+def _connect(read_only: bool, path: Path | str | None = None) -> duckdb.DuckDBPyConnection:
+    target = str(path if path is not None else get_db_path())
     if read_only:
-        return duckdb.connect(
-            str(get_db_path()), read_only=True, config=dict(_READ_ONLY_CONFIG)
-        )
-    return duckdb.connect(str(get_db_path()), read_only=False)
+        return duckdb.connect(target, read_only=True, config=dict(_READ_ONLY_CONFIG))
+    return duckdb.connect(target, read_only=False)
 
 
-def initialize_database() -> None:
+def initialize_database(path: Path | str | None = None) -> None:
     """Create the ``sales`` table and seed it only if it is empty.
 
     Safe to call repeatedly: rows are never duplicated.
     """
-    path = get_db_path()
+    path = Path(path) if path is not None else get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _connect(read_only=False) as con:
+    with _connect(read_only=False, path=path) as con:
         con.execute(SALES_DDL)
         (count,) = con.execute("SELECT COUNT(*) FROM sales").fetchone()
         if count == 0:
@@ -79,9 +78,9 @@ def initialize_database() -> None:
             )
 
 
-def get_schema() -> Schema:
+def get_schema(path: Path | str | None = None) -> Schema:
     """Return the user tables in the shared ``Schema`` format (see ``results``)."""
-    with _connect(read_only=True) as con:
+    with _connect(read_only=True, path=path) as con:
         rows = con.execute(
             """
             SELECT table_name, column_name, data_type, is_nullable
